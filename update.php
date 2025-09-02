@@ -23,8 +23,8 @@ if(count($argv)>3)
 					(
 						$hash,
 						getCmd("d.is_active="),
-						getCmd('cat').'=$'.getCmd("d.stop").'=,$'.getCmd("d.set_throttle_name=").'slimit,$'.getCmd('d.start='),
-						getCmd('d.set_throttle_name=').'slimit'
+						getCmd('cat').'=$'.getCmd("d.stop").'=,$'.getCmd("d.throttle_name.set=").'slimit,$'.getCmd('d.start='),
+						getCmd("d.throttle_name.set=").'slimit'
 					)),
 					new rXMLRPCCommand("view.set_visible",array($hash,"rlimit"))
 				));
