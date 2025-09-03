@@ -40,23 +40,17 @@ if(count($argv)>3)
 				break;
 			}
 			case "resume":
-			{
-				trackersLimit::trace('Resumed torrent from the public tracker '.$hash);
-				$req =  new rXMLRPCRequest( new rXMLRPCCommand( "branch", array
-				(
-					$hash,
-					getCmd("d.complete="),
-					getCmd('d.close=').',
-				$req->run();
-				break;
-			}
-		}
-	}
-}.getCmd('d.state.set=').'0'
-				)));
-				$req->run();
-				break;
-			}
-		}
-	}
+{
+    trackersLimit::trace('Resumed torrent from the public tracker '.$hash);
+    // If the item is already complete, close it and force stopped state; else re-apply 'slimit' throttle
+    $req = new rXMLRPCRequest(new rXMLRPCCommand("branch", array(
+        $hash,
+        getCmd("d.complete="),
+        // then-branch: close + set stopped
+        getCmd('cat').'=$'.getCmd('d.close').'=,$'.getCmd('d.state.set=').'0',
+        // else-branch: ensure the throttle is applied
+        getCmd('d.throttle_name.set=').'slimit'
+    )));
+    $req->run();
+    break;
 }
