@@ -46,7 +46,13 @@ if(count($argv)>3)
 				(
 					$hash,
 					getCmd("d.complete="),
-					getCmd('d.close=').',$'.getCmd('d.stop=')
+					getCmd('d.close=').',
+				$req->run();
+				break;
+			}
+		}
+	}
+}.getCmd('d.state.set=').'0'
 				)));
 				$req->run();
 				break;
