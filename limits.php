@@ -14,7 +14,7 @@ class speedLimit
     {
         $toCorrect = array();
         $req = new rXMLRPCRequest(
-            new rXMLRPCCommand("d.multicall", array(
+            new rXMLRPCCommand("d.multicall2", array(
                 "default",
                 getCmd("d.get_hash="),
                 getCmd("d.throttle_name="),
@@ -113,7 +113,7 @@ class ratioLimit
 {
     protected function correct()
     {
-        $cmd = new rXMLRPCCommand("d.multicall", array("default", getCmd("d.get_hash=")));
+        $cmd = new rXMLRPCCommand("d.multicall2", array("default", getCmd("d.get_hash=")));
         $cmd->addParameters(array(getCmd("d.views.has") . "=rlimit", getCmd("view.set_not_visible") . "=rlimit"));
         $req = new rXMLRPCRequest($cmd);
         $req->setParseByTypes();
@@ -264,7 +264,7 @@ class trackersLimit
         if ($this->loadLocal())
         {
             $req = new rXMLRPCRequest(
-                new rXMLRPCCommand("d.multicall", array("default",
+                new rXMLRPCCommand("d.multicall2", array("default",
                     getCmd("d.get_hash="),
                     getCmd("d.throttle_name="),
                     getCmd("d.views.has") . "=rlimit",
