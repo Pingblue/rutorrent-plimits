@@ -21,7 +21,7 @@ if(count($argv)>3)
 						$hash,
 						getCmd("d.is_active="),
 						getCmd('cat').'=$'.getCmd("d.stop").'=,$'.getCmd("d.throttle_name.set=").'slimit,$'.getCmd('d.start='),
-						getCmd("d.throttle_name.set=").'slimit'
+						getCmd('d.throttle_name.set=').'slimit'
 					)),
 					new rXMLRPCCommand("view.set_visible",array($hash,"rlimit"))
 				));
@@ -30,27 +30,23 @@ if(count($argv)>3)
 			}
 			case "finish":
 			{
-				trackersLimit::trace('Finished torrent from the public tracker '.$hash.' - stopping torrent');
-				$req =  new rXMLRPCRequest( array
-				(
-					new rXMLRPCCommand( "d.close", array($hash) ),
-					new rXMLRPCCommand( "d.stop", array($hash) )
-				));
+				trackersLimit::trace('Finished torrent from the public tracker '.$hash);
+				$req =  new rXMLRPCRequest( new rXMLRPCCommand( "d.close", array($hash) ) );
 				$req->run();
 				break;
 			}
 			case "resume":
-{
-    trackersLimit::trace('Resumed torrent from the public tracker '.$hash);
-    // If the item is already complete, close it and force stopped state; else re-apply 'slimit' throttle
-    $req = new rXMLRPCRequest(new rXMLRPCCommand("branch", array(
-        $hash,
-        getCmd("d.complete="),
-        // then-branch: close + set stopped
-        getCmd('cat').'=$'.getCmd('d.close').'=,$'.getCmd('d.state.set=').'0',
-        // else-branch: ensure the throttle is applied
-        getCmd('d.throttle_name.set=').'slimit'
-    )));
-    $req->run();
-    break;
+			{
+				trackersLimit::trace('Resumed torrent from the public tracker '.$hash);
+				$req =  new rXMLRPCRequest( new rXMLRPCCommand( "branch", array
+				(
+					$hash,
+					getCmd("d.complete="),
+					getCmd('d.close=')
+				)));
+				$req->run();
+				break;
+			}
+		}
+	}
 }
