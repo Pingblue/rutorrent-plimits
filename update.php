@@ -1,12 +1,9 @@
 <?php
-
 // need 5+ args before reading $argv[4]
 if (count($argv) >= 5) {
     $_SERVER['REMOTE_USER'] = $argv[4];
 }
-
 require_once(dirname(__FILE__).'/limits.php');
-
 // the rest needs 4+ args (indexes 1..3)
 if (count($argv) > 3) {
     $tl = new trackersLimit();
@@ -27,19 +24,19 @@ if (count($argv) > 3) {
                 ));
                 $req->run();
                 break;
-
             case "finish":
                 trackersLimit::trace('Finished torrent from the public tracker '.$hash);
-                (new rXMLRPCRequest(new rXMLRPCCommand("d.close", array($hash))))->run();
+                (new rXMLRPCRequest(array(
+                    new rXMLRPCCommand("d.stop", array($hash)),
+                    new rXMLRPCCommand("d.close", array($hash))
+                )))->run();
                 break;
-
             case "resume":
                 trackersLimit::trace('Resumed torrent from the public tracker '.$hash);
-                (new rXMLRPCRequest(new rXMLRPCCommand("branch", array(
-                    $hash,
-                    getCmd("d.complete="),
-                    getCmd('d.close=')
-                ))))->run();
+                (new rXMLRPCRequest(array(
+                    new rXMLRPCCommand("d.stop", array($hash)),
+                    new rXMLRPCCommand("d.close", array($hash))
+                )))->run();
                 break;
         }
     }
