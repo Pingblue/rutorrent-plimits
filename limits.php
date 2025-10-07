@@ -6,7 +6,8 @@ require_once( dirname(__FILE__)."/../../php/cache.php");
 require_once( dirname(__FILE__)."/../../php/settings.php");
 eval( FileUtil::getPluginConf('plimits') );
 
-@define('MAX_SPEED', 10, true);
+// Use KiB/s for modern *.set_kb methods (10 MiB/s = 10240 KiB/s)
+@define('MAX_SPEED_KIB', 10 * 1024, true);
 
 class speedLimit
 {
@@ -14,12 +15,12 @@ class speedLimit
 	{
 		$toCorrect = array();
 		$req = new rXMLRPCRequest(
-			new rXMLRPCCommand( "d.multicall", array(
-			        "default",
-				getCmd("d.get_hash="),
-				getCmd("d.get_throttle_name="),
-				getCmd('cat').'=$'.getCmd("get_throttle_up_max").'=$'.getCmd("d.get_throttle_name="),
-				getCmd('cat').'=$'.getCmd("get_throttle_down_max").'=$'.getCmd("d.get_throttle_name=")))
+			new rXMLRPCCommand( "d.multicall2", array(
+				"", "main",
+				getCmd("d.hash="),
+				getCmd("d.throttle_name="),
+				getCmd('cat').'=$'.getCmd("throttle.up.rate").'=$'.getCmd("d.throttle_name="),
+				getCmd('cat').'=$'.getCmd("throttle.down.rate").'=$'.getCmd("d.throttle_name=")))
 			);
 		if($req->success())
 		{
@@ -32,7 +33,7 @@ class speedLimit
 						$toCorrect[] = $req->val[$i];
 					}
 				}
-        		}
+			}
 		}
 		return($toCorrect);
 	}
@@ -42,13 +43,20 @@ class speedLimit
 		$req = new rXMLRPCRequest();
 		foreach($toCorrect as $hash)
 		{
-			$req->addCommand(new rXMLRPCCommand( "branch", array
-			(
-				$hash,
-				getCmd("d.is_active="),
-				getCmd('cat').'=$'.getCmd("d.stop").'=,$'.getCmd("d.set_throttle_name=").'slimit,$'.getCmd('d.start='),
-				getCmd('d.set_throttle_name=').'slimit'
-			)));
+			// Check if torrent is active
+			$checkReq = new rXMLRPCRequest(new rXMLRPCCommand("d.is_active", array($hash)));
+			if($checkReq->success() && $checkReq->val)
+			{
+				// Active: stop, set throttle, start
+				$req->addCommand(new rXMLRPCCommand("d.try_stop", array($hash)));
+				$req->addCommand(new rXMLRPCCommand("d.throttle_name.set", array($hash, "slimit")));
+				$req->addCommand(new rXMLRPCCommand("d.try_start", array($hash)));
+			}
+			else
+			{
+				// Not active: just set throttle
+				$req->addCommand(new rXMLRPCCommand("d.throttle_name.set", array($hash, "slimit")));
+			}
 		}
 		if($req->getCommandsCount())
 			return($req->success());
@@ -60,25 +68,16 @@ class speedLimit
 		if( ($name=='slimit') && !$public )
 		{
 			trackersLimit::trace('Remove throttle restriction from '.$hash);
-			$req->addCommand(new rXMLRPCCommand( "branch", array
-			(
-				$hash,
-				getCmd("d.is_active="),
-				getCmd('cat').'=$'.getCmd("d.stop").'=,$'.getCmd("d.set_throttle_name=").',$'.getCmd('d.start='),
-				getCmd('d.set_throttle_name=')
-			)));
+			$req->addCommand(new rXMLRPCCommand("d.try_stop", array($hash)));
+			$req->addCommand(new rXMLRPCCommand("d.throttle_name.set", array($hash, "")));
+			$req->addCommand(new rXMLRPCCommand("d.try_start", array($hash)));
 		}
-		else
-		if( ($name!='slimit') && $public )
+		else if( ($name!='slimit') && $public )
 		{
 			trackersLimit::trace('Add throttle restriction to '.$hash);
-			$req->addCommand(new rXMLRPCCommand( "branch", array
-			(
-				$hash,
-				getCmd("d.is_active="),
-				getCmd('cat').'=$'.getCmd("d.stop").'=,$'.getCmd("d.set_throttle_name=").'slimit,$'.getCmd('d.start='),
-				getCmd('d.set_throttle_name=').'slimit'
-			)));
+			$req->addCommand(new rXMLRPCCommand("d.try_stop", array($hash)));
+			$req->addCommand(new rXMLRPCCommand("d.throttle_name.set", array($hash, "slimit")));
+			$req->addCommand(new rXMLRPCCommand("d.try_start", array($hash)));
 		}
 	}
 
@@ -86,22 +85,26 @@ class speedLimit
 	{
 		global $MAX_UL_LIMIT;
 		global $MAX_DL_LIMIT;
+		
+		// Probe global limits with modern API (returns bytes/s)
 		$req = new rXMLRPCRequest( array(
-			new rXMLRPCCommand( "get_upload_rate" ),
-			new rXMLRPCCommand( "get_download_rate" ) ));
+			new rXMLRPCCommand( "throttle.global_up.max_rate" ),
+			new rXMLRPCCommand( "throttle.global_down.max_rate" ) ));
 		if($req->success())
 		{
+			// Set defaults via *.set_kb (expects KiB/s)
 			$req1 = new rXMLRPCRequest();
 			if($req->val[0]==0)
-				$req1->addCommand(new rXMLRPCCommand( "set_upload_rate", MAX_SPEED ));
+				$req1->addCommand(new rXMLRPCCommand( "throttle.global_up.max_rate.set_kb", MAX_SPEED_KIB ));
 			if($req->val[1]==0)
-				$req1->addCommand(new rXMLRPCCommand( "set_download_rate", MAX_SPEED ));
+				$req1->addCommand(new rXMLRPCCommand( "throttle.global_down.max_rate.set_kb", MAX_SPEED_KIB ));
 			if(!$req1->getCommandsCount() || $req1->success())
 			{
 				$toCorrect = $this->collect();
+				// Named throttle values use modern commands and KiB/s
 				$req = new rXMLRPCRequest( array(
-					new rXMLRPCCommand("throttle_up", array("slimit",$MAX_UL_LIMIT."")),
-					new rXMLRPCCommand("throttle_down", array("slimit",$MAX_DL_LIMIT.""))
+					new rXMLRPCCommand("throttle.up.max_rate.set_kb", array("slimit", $MAX_UL_LIMIT)),
+					new rXMLRPCCommand("throttle.down.max_rate.set_kb", array("slimit", $MAX_DL_LIMIT))
 					)
 				);
 				return($req->success() && $this->correct( $toCorrect ));
@@ -115,7 +118,7 @@ class ratioLimit
 {
 	protected function correct()
 	{
-		$cmd = new rXMLRPCCommand("d.multicall",array("default",getCmd("d.get_hash=")));
+		$cmd = new rXMLRPCCommand("d.multicall2",array("", "main", getCmd("d.hash=")));
 		$cmd->addParameters( array( getCmd("d.views.has")."=rlimit", getCmd("view.set_not_visible")."=rlimit" ) );
 		$req = new rXMLRPCRequest($cmd);
 		$req->setParseByTypes();
@@ -135,17 +138,20 @@ class ratioLimit
 	protected function flush()
 	{
 		global $RATIO_LIMIT;
-		$req1 = new rXMLRPCRequest(new rXMLRPCCommand("view_list"));
+		$req1 = new rXMLRPCRequest(new rXMLRPCCommand("view.list"));
 		if($req1->success())
 		{
 			$req = new rXMLRPCRequest();
 			if(!in_array("rlimit",$req1->val))
-				$req->addCommand(new rXMLRPCCommand("group.insert_persistent_view", array("", "rlimit")));
-			$req->addCommand(new rXMLRPCCommand("group.rlimit.ratio.enable",array("")));
-			$req->addCommand(new rXMLRPCCommand("group.rlimit.ratio.min.set",$RATIO_LIMIT));
-			$req->addCommand(new rXMLRPCCommand("group.rlimit.ratio.max.set",$RATIO_LIMIT));
-			$req->addCommand(new rXMLRPCCommand("group.rlimit.ratio.upload.set",0));
-			$req->addCommand(new rXMLRPCCommand("system.method.set", array("group.rlimit.ratio.command", getCmd("d.stop=")."; ".getCmd("d.close="))));
+				$req->addCommand(new rXMLRPCCommand("view.add", array("rlimit")));
+			
+			$req->addCommand(new rXMLRPCCommand("view.filter_on", array("rlimit", "d.ratio=")));
+			$req->addCommand(new rXMLRPCCommand("group2.rlimit.view.set", array("rlimit")));
+			$req->addCommand(new rXMLRPCCommand("group2.rlimit.ratio.enable",array()));
+			$req->addCommand(new rXMLRPCCommand("group2.rlimit.ratio.min.set", array($RATIO_LIMIT)));
+			$req->addCommand(new rXMLRPCCommand("group2.rlimit.ratio.max.set", array($RATIO_LIMIT)));
+			$req->addCommand(new rXMLRPCCommand("group2.rlimit.ratio.upload.set", array(0)));
+			$req->addCommand(new rXMLRPCCommand("method.set", array("group2.rlimit.ratio.command", getCmd("d.stop=")."; ".getCmd("d.close="))));
 			return($req->success());
 		}
 		return(false);
@@ -159,8 +165,7 @@ class ratioLimit
 			$req->addCommand(new rXMLRPCCommand("view.set_not_visible",array($hash, 'rlimit')));
 			$req->addCommand(new rXMLRPCCommand("d.views.remove",array($hash, 'rlimit')));
 		}
-		else
-		if( !$present && $public )
+		else if( !$present && $public )
 		{
 			trackersLimit::trace('Add ratio restriction to '.$hash);
 			$req->addCommand(new rXMLRPCCommand("d.views.push_back_unique",array($hash, 'rlimit')));
@@ -170,7 +175,7 @@ class ratioLimit
 
 	public function init()
 	{
-        	return($this->flush() && $this->correct());
+		return($this->flush() && $this->correct());
 	}
 }
 
@@ -193,17 +198,17 @@ class trackersLimit
 			$req = new rXMLRPCRequest(
 				rTorrentSettings::get()->getOnInsertCommand( array('_plimits'.User::getUser(),
 					getCmd('execute.nothrow').'={'.Utility::getPHP().','.dirname(__FILE__).'/update.php,"$'.
-					getCmd('t.multicall').'=$'.getCmd('d.get_hash').'=,'.getCmd('t.get_url').'=,'.getCmd('cat').'=#",$'.getCmd('d.get_hash').'=,insert,'.User::getLogin().'}' ) ) );
+					getCmd('t.multicall').'=$'.getCmd('d.hash').'=,'.getCmd('t.url').'=,'.getCmd('cat').'=#",$'.getCmd('d.hash').'=,insert,'.User::getLogin().'}' ) ) );
 			if($preventUpload)
 			{
 				$req->addCommand(
 					rTorrentSettings::get()->getOnFinishedCommand(array('_plimits1'.User::getUser(),
 					getCmd('execute.nothrow').'={'.Utility::getPHP().','.dirname(__FILE__).'/update.php,"$'.
-					getCmd('t.multicall').'=$'.getCmd('d.get_hash').'=,'.getCmd('t.get_url').'=,'.getCmd('cat').'=#",$'.getCmd('d.get_hash').'=,finish,'.User::getLogin().'}' ) ) );
+					getCmd('t.multicall').'=$'.getCmd('d.hash').'=,'.getCmd('t.url').'=,'.getCmd('cat').'=#",$'.getCmd('d.hash').'=,finish,'.User::getLogin().'}' ) ) );
 				$req->addCommand(
 					rTorrentSettings::get()->getOnResumedCommand(array('_plimits2'.User::getUser(),
 					getCmd('execute.nothrow').'={'.Utility::getPHP().','.dirname(__FILE__).'/update.php,"$'.
-					getCmd('t.multicall').'=$'.getCmd('d.get_hash').'=,'.getCmd('t.get_url').'=,'.getCmd('cat').'=#",$'.getCmd('d.get_hash').'=,resume,'.User::getLogin().'}' ) ) );
+					getCmd('t.multicall').'=$'.getCmd('d.hash').'=,'.getCmd('t.url').'=,'.getCmd('cat').'=#",$'.getCmd('d.hash').'=,resume,'.User::getLogin().'}' ) ) );
 			}
 			if($req->success())
 			{
@@ -262,11 +267,11 @@ class trackersLimit
 		if($this->loadLocal())
 		{
 			$req =  new rXMLRPCRequest(
-				new rXMLRPCCommand("d.multicall",array("default",
-					getCmd("d.get_hash="),
-					getCmd("d.get_throttle_name="),
+				new rXMLRPCCommand("d.multicall2",array("", "main",
+					getCmd("d.hash="),
+					getCmd("d.throttle_name="),
 					getCmd("d.views.has")."=rlimit",
-					getCmd("cat").'="$'.getCmd("t.multicall=").getCmd("d.get_hash=").",".getCmd("t.get_url")."=,".getCmd("cat=#").'"'
+					getCmd("cat").'="$'.getCmd("t.multicall=").getCmd("d.hash=").",".getCmd("t.url")."=,".getCmd("cat=#").'"'
 				)));
 			if($req->success())
 			{
