@@ -251,16 +251,21 @@ class trackersLimit
 		return(false);
 	}
 
-	public function checkPublic( $trackers )
-	{
-		global $enableOnDHT;
-		if( $enableOnDHT && strpos( $trackers, "dht://" )!==false )
-			return(true);
-		foreach( $this->trackers as $trk )
-			if( ! empty( $trk ) && stristr( $trackers, $trk )!==false )
-				return(true);
-		return(false);
-	}
+public function checkPublic( $trackers )
+{
+    // Treat DHT-only or trackerless torrents as public
+    if (empty(trim($trackers))) return true;
+
+    global $enableOnDHT;
+    if ($enableOnDHT && strpos($trackers, "dht://") !== false)
+        return true;
+
+    foreach ($this->trackers as $trk)
+        if (!empty($trk) && stristr($trackers, $trk) !== false)
+            return true;
+
+    return false;
+}
 
 	public function check()
 	{
